@@ -1,0 +1,5 @@
+.idea/*
+build/*
+dist/*
+*.pyc
+waste_management.egg-info/*
