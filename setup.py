@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="waste_management",
-    version="1.2",
+    version="1.3",
     author="Dominick Meglio",
     license="MIT",
     author_email="dmeglio@gmail.com",
