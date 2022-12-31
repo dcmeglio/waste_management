@@ -1,0 +1,1 @@
+Synchronous and asynchronous interface to the Waste Management REST API.

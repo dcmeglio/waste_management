@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="waste_management",
-    version="1.3",
+    version="3.0",
     author="Dominick Meglio",
     license="MIT",
     author_email="dmeglio@gmail.com",
@@ -14,7 +14,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/dcmeglio/waste_management",
     packages=setuptools.find_packages(),
-    install_requires=["requests", "pyjwt"],
+    install_requires=["pyjwt", "httpx"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

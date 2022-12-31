@@ -4,7 +4,7 @@ import time
 import json
 import jwt
 
-import requests
+import httpx
 
 from .const import (
     API_KEY_AUTHENTICATION,
@@ -31,8 +31,11 @@ class WMClient:
         self._issuer = None
         self._holiday_regex = re.compile("(\d{1,2}/\d{1,2}(?:/\d{2,4})?)")
         self._delay_regex = re.compile("(\d+)(?: day)? delay")
+        self._access_token_regex = re.compile(
+            "access_token\s*=\s*'(.+?)'", re.MULTILINE
+        )
 
-    def _string_escape(self, input: str, encoding="utf-8"):
+    def __string_escape(self, input: str, encoding="utf-8"):
         return (
             input.encode("latin1")
             .decode("unicode-escape")
@@ -40,14 +43,7 @@ class WMClient:
             .decode(encoding)
         )
 
-    def authenticate(self):
-        self._apiKey = API_KEY_AUTHENTICATION
-        data = self.api_post(
-            "user/authenticate",
-            {"username": self.email, "password": self.password, "locale": "en_US"},
-        )
-        response_data = data["data"]
-
+    def __set_token_data(self, response_data):
         self._session_token = response_data["sessionToken"]
         self._access_token = response_data["access_token"]
         self._refresh_token = response_data["refresh_token"]
@@ -59,13 +55,33 @@ class WMClient:
         )
         self._client_id = decoded_jwt["cid"]
         self._issuer = decoded_jwt["iss"]
+
+    async def async_authenticate(self):
+        self._apiKey = API_KEY_AUTHENTICATION
+        data = await self.async_api_post(
+            "user/authenticate",
+            {"username": self.email, "password": self.password, "locale": "en_US"},
+        )
+        self.__set_token_data(data["data"])
+
         return data
 
-    def okta_authorize(self):
+    def authenticate(self):
+        self._apiKey = API_KEY_AUTHENTICATION
+        data = self.api_post(
+            "user/authenticate",
+            {"username": self.email, "password": self.password, "locale": "en_US"},
+        )
+        self.__set_token_data(data["data"])
+
+        return data
+
+    async def async_okta_authorize(self):
         # get from access token issuer
-        response = requests.get(
+        client = httpx.AsyncClient()
+        response = await client.get(
             self._issuer + "/v1/authorize",
-            {
+            params={
                 "client_id": self._client_id,
                 "nonce": "x",
                 "prompt": "none",
@@ -76,60 +92,121 @@ class WMClient:
                 "redirect_uri": "https://www.wm.com",
                 "sessionToken": self._session_token,
             },
+            timeout=10,
         )
         response.raise_for_status()
-        result = re.search("access_token\s*=\s*'(.+?)'", response.text, re.MULTILINE)
-        self._okta_access_token = self._string_escape(result.group(1))
+        result = re.search(self._access_token_regex, response.text)
+        self._okta_access_token = self.__string_escape(result.group(1))
 
-    def get_accounts(self):
+    def okta_authorize(self):
+        # get from access token issuer
+        client = httpx.Client()
+        response = client.get(
+            self._issuer + "/v1/authorize",
+            params={
+                "client_id": self._client_id,
+                "nonce": "x",
+                "prompt": "none",
+                "response_mode": "okta_post_message",
+                "response_type": "token",
+                "state": "x",
+                "scope": "openid email offline_access",
+                "redirect_uri": "https://www.wm.com",
+                "sessionToken": self._session_token,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        result = re.search(self._access_token_regex, response.text)
+        self._okta_access_token = self.__string_escape(result.group(1))
+
+    async def async_get_accounts(self):
         self._apiKey = API_KEY_USER_ACCOUNTS
-
-        response = requests.get(
-            REST_API_URL + f"authorize/user/{self._user_id}/accounts",
-            headers=self.headers,
-            params={"timestamp": time.time() * 1000, "lang": "en_US"},
+        jsonData = await self.async_api_get(
+            f"authorize/user/{self._user_id}/accounts",
+            {"timestamp": time.time() * 1000, "lang": "en_US"},
         )
-        response.raise_for_status()
-
-        jsonData = json.loads(response.content.decode("UTF-8"))
 
         results = []
         for acct in jsonData["data"]["linkedAccounts"]:
             results.append(AccountInfo(acct))
         return results
 
-    def get_services(self, account_id):
-        self._apiKey = API_KEY_CUSTOMER_SERVICES
+    def get_accounts(self):
+        self._apiKey = API_KEY_USER_ACCOUNTS
 
-        response = requests.get(
-            REST_API_URL + f"account/{account_id}/services",
-            headers=self.headers,
-            params={
+        jsonData = self.api_get(
+            f"authorize/user/{self._user_id}/accounts",
+            {"timestamp": time.time() * 1000, "lang": "en_US"},
+        )
+
+        results = []
+        for acct in jsonData["data"]["linkedAccounts"]:
+            results.append(AccountInfo(acct))
+        return results
+
+    async def async_get_services(self, account_id):
+        self._apiKey = API_KEY_CUSTOMER_SERVICES
+        jsonData = await self.async_api_get(
+            f"account/{account_id}/services",
+            {
                 "lang": "en_US",
                 "serviceChangeEligibility": "Y",
                 "userId": self._user_id,
             },
         )
-        response.raise_for_status()
-
-        jsonData = json.loads(response.content.decode("UTF-8"))
         results = []
         for svc in jsonData["services"]:
             results.append(Service(svc))
 
         return results
 
+    def get_services(self, account_id):
+        self._apiKey = API_KEY_CUSTOMER_SERVICES
+
+        jsonData = self.api_get(
+            f"account/{account_id}/services",
+            {
+                "lang": "en_US",
+                "serviceChangeEligibility": "Y",
+                "userId": self._user_id,
+            },
+        )
+        results = []
+        for svc in jsonData["services"]:
+            results.append(Service(svc))
+
+        return results
+
+    async def async_get_service_pickup(self, account_id, service_id):
+        self._apiKey = API_KEY_CUSTOMER_SERVICES
+
+        jsonData = await self.async_api_get(
+            f"account/{account_id}/service/{service_id}/pickupinfo",
+            {"lang": "en_US", "checkAlerts": "Y", "userId": self._user_id},
+        )
+
+        upcoming_holiday_date = self.__get_holiday_delay_date(jsonData)
+        holiday_info = None
+        if upcoming_holiday_date is not None:
+            holiday_info = await self.get_holidays(account_id)
+
+        pickupDates = []
+        for dateStr in jsonData["pickupScheduleInfo"]["pickupDates"]:
+            date = datetime.strptime(dateStr, "%m-%d-%Y")
+            if date == upcoming_holiday_date and date in holiday_info.keys():
+                date = holiday_info[date]
+            pickupDates.append(date)
+
+        return pickupDates
+
     def get_service_pickup(self, account_id, service_id):
         self._apiKey = API_KEY_CUSTOMER_SERVICES
 
-        response = requests.get(
-            REST_API_URL + f"account/{account_id}/service/{service_id}/pickupinfo",
-            headers=self.headers,
-            params={"lang": "en_US", "checkAlerts": "Y", "userId": self._user_id},
+        jsonData = self.api_get(
+            f"account/{account_id}/service/{service_id}/pickupinfo",
+            {"lang": "en_US", "checkAlerts": "Y", "userId": self._user_id},
         )
-        response.raise_for_status()
-
-        jsonData = json.loads(response.content.decode("UTF-8"))
 
         upcoming_holiday_date = self.__get_holiday_delay_date(jsonData)
         holiday_info = None
@@ -145,17 +222,13 @@ class WMClient:
 
         return pickupDates
 
-    def get_holidays(self, account_id):
+    async def async_get_holidays(self, account_id):
         self._apiKey = API_KEY_HOLIDAYS_USER_BY_ADDRESS
 
-        response = requests.get(
-            REST_API_URL + f"user/{self._user_id}/account/{account_id}/holidays",
-            headers=self.headers,
-            params={"lang": "en_US", "type": "upcoming"},
+        jsonData = await self.async_api_get(
+            f"user/{self._user_id}/account/{account_id}/holidays",
+            {"lang": "en_US", "type": "upcoming"},
         )
-        response.raise_for_status()
-
-        jsonData = json.loads(response.content.decode("UTF-8"))
 
         holidays = {}
 
@@ -165,15 +238,69 @@ class WMClient:
                 holidays.update(self.__parse_holiday_impacted_dates(holiday_message))
         return holidays
 
+    def get_holidays(self, account_id):
+        self._apiKey = API_KEY_HOLIDAYS_USER_BY_ADDRESS
+
+        jsonData = self.api_get(
+            f"user/{self._user_id}/account/{account_id}/holidays",
+            {"lang": "en_US", "type": "upcoming"},
+        )
+
+        holidays = {}
+
+        if "holidayData" in jsonData:
+            for holiday in jsonData["holidayData"]:
+                holiday_message = holiday["holidayHours"]
+                holidays.update(self.__parse_holiday_impacted_dates(holiday_message))
+        return holidays
+
+    async def async_api_get(self, path="", query=None):
+        """Execute an API get asynchronously"""
+        client = httpx.AsyncClient()
+        response = await client.get(
+            REST_API_URL + path,
+            params=query,
+            headers=self.headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+        return json.loads(response.content.decode("UTF-8"))
+
     def api_get(self, path="", query=None):
-        response = requests.get(REST_API_URL + path)
+        """Execute an API get synchronously"""
+        client = httpx.Client()
+        response = client.get(
+            REST_API_URL + path,
+            params=query,
+            headers=self.headers,
+            timeout=10,
+        )
         response.raise_for_status()
         return json.loads(response.content.decode("UTF-8"))
 
     def api_post(self, path="", data=None):
-        response = requests.post(REST_API_URL + path, headers=self.headers, json=data)
+        """Execute an API post synchronously"""
+        client = httpx.Client()
+        response = client.post(
+            REST_API_URL + path,
+            headers=self.headers,
+            json=data,
+            timeout=10,
+        )
         response.raise_for_status()
 
+        return json.loads(response.content.decode("UTF-8"))
+
+    async def async_api_post(self, path="", data=None):
+        """Execute an API post asynchronously"""
+        client = httpx.AsyncClient()
+        response = await client.post(
+            REST_API_URL + path,
+            headers=self.headers,
+            json=data,
+            timeout=10,
+        )
+        response.raise_for_status()
         return json.loads(response.content.decode("UTF-8"))
 
     def __get_holiday_delay_date(self, jsonData):
