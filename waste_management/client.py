@@ -189,7 +189,7 @@ class WMClient:
         upcoming_holiday_date = self.__get_holiday_delay_date(jsonData)
         holiday_info = None
         if upcoming_holiday_date is not None:
-            holiday_info = await self.get_holidays(account_id)
+            holiday_info = await self.async_get_holidays(account_id)
 
         pickupDates = []
         for dateStr in jsonData["pickupScheduleInfo"]["pickupDates"]:
