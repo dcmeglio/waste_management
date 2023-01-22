@@ -17,7 +17,7 @@ from .Entities import AccountInfo, Service
 
 
 class WMClient:
-    def __init__(self, email, password):
+    def __init__(self, email, password, client_session=None):
         self.email = email
         self.password = password
         self._session_token = None
@@ -34,6 +34,7 @@ class WMClient:
         self._access_token_regex = re.compile(
             "access_token\s*=\s*'(.+?)'", re.MULTILINE
         )
+        self._client_session = client_session or httpx.AsyncClient()
 
     def __string_escape(self, input: str, encoding="utf-8"):
         return (
@@ -78,7 +79,7 @@ class WMClient:
 
     async def async_okta_authorize(self):
         # get from access token issuer
-        client = httpx.AsyncClient()
+        client = self._client_session
         response = await client.get(
             self._issuer + "/v1/authorize",
             params={
@@ -92,7 +93,7 @@ class WMClient:
                 "redirect_uri": "https://www.wm.com",
                 "sessionToken": self._session_token,
             },
-            timeout=10,
+            timeout=20,
         )
         response.raise_for_status()
         result = re.search(self._access_token_regex, response.text)
@@ -256,12 +257,12 @@ class WMClient:
 
     async def async_api_get(self, path="", query=None):
         """Execute an API get asynchronously"""
-        client = httpx.AsyncClient()
+        client = self._client_session
         response = await client.get(
             REST_API_URL + path,
             params=query,
             headers=self.headers,
-            timeout=10,
+            timeout=20,
         )
         response.raise_for_status()
         return json.loads(response.content.decode("UTF-8"))
@@ -293,12 +294,12 @@ class WMClient:
 
     async def async_api_post(self, path="", data=None):
         """Execute an API post asynchronously"""
-        client = httpx.AsyncClient()
+        client = self._client_session
         response = await client.post(
             REST_API_URL + path,
             headers=self.headers,
             json=data,
-            timeout=10,
+            timeout=20,
         )
         response.raise_for_status()
         return json.loads(response.content.decode("UTF-8"))
