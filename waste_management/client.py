@@ -15,6 +15,9 @@ from .const import (
 )
 from .Entities import AccountInfo, Service
 
+ASYNC_TIMEOUT = 30
+SYNC_TIMEOUT = 10
+
 
 class WMClient:
     def __init__(self, email, password, client_session=None):
@@ -93,7 +96,7 @@ class WMClient:
                 "redirect_uri": "https://www.wm.com",
                 "sessionToken": self._session_token,
             },
-            timeout=20,
+            timeout=ASYNC_TIMEOUT,
         )
         response.raise_for_status()
         result = re.search(self._access_token_regex, response.text)
@@ -115,7 +118,7 @@ class WMClient:
                 "redirect_uri": "https://www.wm.com",
                 "sessionToken": self._session_token,
             },
-            timeout=10,
+            timeout=SYNC_TIMEOUT,
         )
         response.raise_for_status()
         result = re.search(self._access_token_regex, response.text)
@@ -262,7 +265,7 @@ class WMClient:
             REST_API_URL + path,
             params=query,
             headers=self.headers,
-            timeout=20,
+            timeout=ASYNC_TIMEOUT,
         )
         response.raise_for_status()
         return json.loads(response.content.decode("UTF-8"))
@@ -274,7 +277,7 @@ class WMClient:
             REST_API_URL + path,
             params=query,
             headers=self.headers,
-            timeout=10,
+            timeout=SYNC_TIMEOUT,
         )
         response.raise_for_status()
         return json.loads(response.content.decode("UTF-8"))
@@ -286,7 +289,7 @@ class WMClient:
             REST_API_URL + path,
             headers=self.headers,
             json=data,
-            timeout=10,
+            timeout=SYNC_TIMEOUT,
         )
         response.raise_for_status()
 
@@ -299,7 +302,7 @@ class WMClient:
             REST_API_URL + path,
             headers=self.headers,
             json=data,
-            timeout=20,
+            timeout=ASYNC_TIMEOUT,
         )
         response.raise_for_status()
         return json.loads(response.content.decode("UTF-8"))
